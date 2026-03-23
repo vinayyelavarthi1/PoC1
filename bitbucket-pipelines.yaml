@@ -1,0 +1,119 @@
+image: 
+  name: acrbd1.azurecr.io/sf:latest
+  username: $ACR_USER
+  password: $ACR_PASS
+
+clone:
+  depth: full
+
+definitions:
+  steps:
+
+    # ------------------
+    # 🔹 BLACK DUCK SCAN
+    # ------------------
+    - step: &runBlackDuckScan
+        name: RunBlackDuckScan
+        script:
+          - |
+              echo "Start of RunBlackDuckScan on ${BITBUCKET_BRANCH}"
+              printenv
+              chmod 777 ./cicd-scripts/*.sh
+              ./cicd-scripts/runBlackDuckScan.sh ${sendPrComment}
+              echo "End of RunBlackDuckScan on ${BITBUCKET_BRANCH}"
+        after-script:
+          - echo "Bitbucket pipeline finished"
+        artifacts:
+          - '.bridge/**'
+        concurrency-group: blackduck-${BITBUCKET_BRANCH}
+
+    # --------------------------------------
+    # 🔹 SALESFORCE VALIDATION – DELTA BASED
+    # --------------------------------------
+    - step: &validateDeltaSalesforce
+        name: ValidateDeltaSF
+        script:
+          - echo "Start validation on ${TARGETORG}"
+          - chmod 777 ./cicd-scripts/*.sh
+          - ./cicd-scripts/authorizeOrg.sh
+          - |
+            export SFGITREPONAME=$(basename `git rev-parse --show-toplevel`)
+            export SFGITBRANCHNAME=$(git rev-parse --abbrev-ref HEAD)
+            export SFGITCOMMIT=$(git log --date=iso-local --pretty=format:"%h %ad %s | %an" | head -1)
+
+            if [[ "$BITBUCKET_PR_DESTINATION_BRANCH" == sprint/* ]]; then
+              echo "Target branch is sprint/*"
+              FROM_BRANCH="$compareToBranch"
+            else
+              echo "Target branch is not sprint/*"
+              FROM_BRANCH="$BITBUCKET_PR_DESTINATION_BRANCH"
+            fi
+
+            echo "Comparing against branch: $FROM_BRANCH"
+            sf sgd:source:delta --to HEAD --from origin/$FROM_BRANCH -i .deltaignore -o .      
+          - |
+             git fetch origin +refs/heads/$FROM_BRANCH:refs/remotes/origin/$FROM_BRANCH
+             BASE_COMMIT=$(git merge-base HEAD origin/$FROM_BRANCH)
+             TO_COMMIT=HEAD
+             mkdir -p sgd-output
+             sf sgd:source:delta --from $BASE_COMMIT --to $TO_COMMIT -o sgd-output --generate-delta
+             ls -R sgd-output || true
+             if [ -f sgd-output/package/package.xml ]; then
+               cp sgd-output/package/package.xml ./package.xml;
+             else
+               echo "package.xml not found";
+             fi
+          - if [ -f sgd-output/destructiveChanges/destructiveChanges.xml ]; then
+              cp sgd-output/destructiveChanges/destructiveChanges.xml ./destructiveChanges.xml;
+            else
+              echo "destructiveChanges.xml not found";
+            fi
+          - cat ./package.xml
+          - cat ./destructiveChanges.xml
+          - ./cicd-scripts/validateDeployment.sh
+
+        artifacts:
+          - package.xml
+          - destructiveChanges.xml
+
+        concurrency-group: delta-validation-${BITBUCKET_BRANCH}
+
+
+    - step: &sf-deploy
+        name: Deploy Salesforce (Delta)
+        script:
+          - chmod 777 ./cicd-scripts/*.sh
+          - ./cicd-scripts/authorizeOrg.sh
+          - sf sgd:source:delta --to HEAD --from HEAD^ -i .deltaignore -o .
+          - ./cicd-scripts/deploySalesforce.sh
+        concurrency-group: salesforce-deployment-${BITBUCKET_BRANCH}    
+
+
+# =====================
+# PIPELINES
+# =====================
+pipelines:
+  pull-requests:
+    '{feature/*,Feature/*,FEATURE/*,bugfix/*,Bugfix/*,BUGFIX/*,hotfix/*,Hotfix/*,HOTFIX/*,sprint/*,Sprint/*,SPRINT/*}':
+      - parallel:
+          - step:
+              <<: *runBlackDuckScan
+              name: Run Black Duck Scan
+
+          - step:
+              <<: *validateDeltaSalesforce
+              name: Validate Delta SF Deployment
+              deployment: org-test
+
+  branches:
+    sprint/*:
+      - step:
+          <<: *sf-deploy
+          name: Salesforce Deployment
+          deployment: bw-dev
+
+  custom:
+    Manual Black Duck Scan:
+      - step:
+          <<: *runBlackDuckScan
+          name: Manual Black Duck Scan
