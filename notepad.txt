@@ -1,0 +1,19 @@
+Generate delta
+   ↓
+Normal validate with full package
+   ↓
+Success → pipeline passes
+   ↓
+Failure
+   ↓
+Check if failure mentions OmniDataTransform / OmniIntegrationProcedure
+   ↓
+No → fail pipeline normally
+Yes → split package into Salesforce + Omni
+   ↓
+Validate Salesforce package
+   ↓
+Validate Omni package
+   ↓
+If both succeed → pipeline passes
+Else → fail pipeline
