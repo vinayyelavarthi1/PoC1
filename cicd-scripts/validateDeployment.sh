@@ -1,4 +1,24 @@
 #!/bin/bash -x
+################################################################################
+#  Validate Salesforce deployment using a delta package manifest
+#      1. Resolve the generated package.xml file to validate
+#      2. Run combined validation for the full package
+#      3. Detect Omni metadata validation failures when applicable
+#      4. Split the package and retry validation for metadata and Omni separately
+#
+#  Environment Variables:
+#   - TARGETORG            : target Salesforce org alias/username
+#   - OMNI_METADATA_TYPES  : space-separated metadata type names treated as Omni
+#   - SPLIT_OUTPUT_DIR     : output directory for split package manifests
+#   - BITBUCKET_PR_DESTINATION_BRANCH : PR target branch used to choose test level
+#   - sendPrComment        : when set, posts validation output back to the PR
+#
+#  Author: Vinay Yelavarthi, 03/24/2026
+#  Change Log:
+#    03/24/2026 Vinay Add file header and function comment blocks
+#    03/24/2026 Vinay Choose validation test level by PR destination branch
+#
+################################################################################
 set -euo pipefail
 
 echo "Validating deployment on org: $TARGETORG"
@@ -6,11 +26,16 @@ echo "Validating deployment on org: $TARGETORG"
 OMNI_METADATA_TYPES="${OMNI_METADATA_TYPES:-OmniDataTransform OmniIntegrationProcedure}"
 SPLIT_OUTPUT_DIR="${SPLIT_OUTPUT_DIR:-package-split}"
 ALL_VALIDATE_OUTPUT=""
+VALIDATION_TEST_LEVEL=""
 
 # ----------------------------------------
 # Helper functions
 # ----------------------------------------
 
+############################################################
+# Resolve the package.xml path from known pipeline output locations
+#inputs:
+# arg1 : none
 resolve_package_xml() {
   local candidate
 
@@ -24,11 +49,19 @@ resolve_package_xml() {
   return 1
 }
 
+############################################################
+# Check whether a manifest contains any <types> entries
+#inputs:
+# arg1 : manifest path
 has_types() {
   local manifest_path="$1"
   grep -q "<types>" "$manifest_path"
 }
 
+############################################################
+# Check whether a manifest contains any configured Omni metadata types
+#inputs:
+# arg1 : manifest path
 manifest_contains_omni_types() {
   local manifest_path="$1"
   local metadata_type
@@ -42,6 +75,10 @@ manifest_contains_omni_types() {
   return 1
 }
 
+############################################################
+# Check whether validation output mentions any configured Omni metadata types
+#inputs:
+# arg1 : command output text
 output_mentions_omni_types() {
   local command_output="$1"
   local metadata_type
@@ -55,6 +92,11 @@ output_mentions_omni_types() {
   return 1
 }
 
+############################################################
+# Append a labeled validation output block to the combined log buffer
+#inputs:
+# arg1 : label for the validation run
+# arg2 : command output text
 append_output() {
   local label="$1"
   local command_output="$2"
@@ -65,6 +107,24 @@ ${command_output}
 "
 }
 
+############################################################
+# Determine the Salesforce validation test level from the PR target branch
+#inputs:
+# arg1 : none, uses BITBUCKET_PR_DESTINATION_BRANCH
+resolve_validation_test_level() {
+  local destination_branch="${BITBUCKET_PR_DESTINATION_BRANCH:-}"
+
+  if [[ "$destination_branch" == "org/stage" || "$destination_branch" == "org/main" ]]; then
+    echo "RunLocalTests"
+  else
+    echo "RunRelevantTests"
+  fi
+}
+
+############################################################
+# Build destructive change arguments for the validation command
+#inputs:
+# arg1 : include destructive changes, true/false
 build_destructive_args() {
   local include_destructive="${1:-true}"
   DESTRUCTIVE_ARGS=()
@@ -84,6 +144,12 @@ build_destructive_args() {
   fi
 }
 
+############################################################
+# Run Salesforce validation for a given manifest and capture output
+#inputs:
+# arg1 : manifest path
+# arg2 : validation label
+# arg3 : include destructive changes, true/false
 run_validation() {
   local manifest_path="$1"
   local label="$2"
@@ -98,7 +164,7 @@ run_validation() {
   validate_output=$(
     sf project deploy validate \
       --manifest "$manifest_path" \
-      --test-level RunRelevantTests \
+      --test-level "$VALIDATION_TEST_LEVEL" \
       --verbose \
       --ignore-warnings \
       --target-org "$TARGETORG" \
@@ -111,6 +177,9 @@ run_validation() {
   append_output "$label" "$validate_output"
   return "$validate_status"
 }
+
+VALIDATION_TEST_LEVEL="$(resolve_validation_test_level)"
+echo "Using validation test level: ${VALIDATION_TEST_LEVEL} for PR destination branch: ${BITBUCKET_PR_DESTINATION_BRANCH:-N/A}"
 
 PACKAGE_XML="$(resolve_package_xml || true)"
 
