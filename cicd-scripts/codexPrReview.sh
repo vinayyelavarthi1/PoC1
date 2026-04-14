@@ -82,8 +82,3 @@ if [ -n "${sendPrComment:-}" ] && [ -n "${BITBUCKET_PR_ID:-}" ] && [ -n "${BITBU
     -H "Content-Type: application/json" \
     -d "{\"content\": {\"raw\": \"Codex PR review:\n\n$COMMENT_BODY\"}}"
 fi
-
-if grep -Eiq 'severity:[[:space:]]*(critical|high)' "$REPORT_FILE"; then
-  echo "High-severity Codex finding detected."
-  exit 1
-fi

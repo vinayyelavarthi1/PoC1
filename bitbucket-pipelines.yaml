@@ -88,9 +88,9 @@ definitions:
           - ./cicd-scripts/deploySalesforce.sh
         concurrency-group: salesforce-deployment-${BITBUCKET_BRANCH}    
 
-    # ----------------------
-    # CODEx SECURITY REVIEW
-    # ----------------------
+    # ----------------
+    # CODEX PR REVIEW
+    # ----------------
     - step: &codexPrReview
         name: CodexPrReview
         script:
@@ -101,7 +101,7 @@ definitions:
         artifacts:
           - codex-pr-review.md
           - pr.diff
-        concurrency-group: codex-security-${BITBUCKET_BRANCH}
+        concurrency-group: codex-pr-review-${BITBUCKET_BRANCH}
 
 
 # =====================
