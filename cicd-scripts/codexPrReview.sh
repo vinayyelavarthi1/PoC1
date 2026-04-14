@@ -32,6 +32,18 @@ if [ -z "${BITBUCKET_PR_DESTINATION_BRANCH:-}" ]; then
   exit 1
 fi
 
+if [ -z "${BITBUCKET_PR_ID:-}" ]; then
+  echo "BITBUCKET_PR_ID is not set. This step must run in a pull request pipeline." > "$REPORT_FILE"
+  cat "$REPORT_FILE"
+  exit 1
+fi
+
+if [ -z "${BITBUCKET_SVC_USERNAME:-}" ] || [ -z "${BITBUCKET_OAUTH_TOKEN:-}" ]; then
+  echo "BITBUCKET_SVC_USERNAME and BITBUCKET_OAUTH_TOKEN must be configured to post Codex feedback to the PR." > "$REPORT_FILE"
+  cat "$REPORT_FILE"
+  exit 1
+fi
+
 FROM_BRANCH="$BITBUCKET_PR_DESTINATION_BRANCH"
 if [[ "$BITBUCKET_PR_DESTINATION_BRANCH" == sprint/* ]] && [ -n "${compareToBranch:-}" ]; then
   FROM_BRANCH="$compareToBranch"
@@ -74,11 +86,9 @@ fi
 
 cat "$REPORT_FILE"
 
-if [ -n "${sendPrComment:-}" ] && [ -n "${BITBUCKET_PR_ID:-}" ] && [ -n "${BITBUCKET_SVC_USERNAME:-}" ] && [ -n "${BITBUCKET_OAUTH_TOKEN:-}" ]; then
-  COMMENT_BODY="$(sed 's/"/\\"/g' "$REPORT_FILE" | tr '\n' ' ')"
-  curl -X POST \
-    "https://api.bitbucket.org/2.0/repositories/$BITBUCKET_WORKSPACE/$BITBUCKET_REPO_SLUG/pullrequests/$BITBUCKET_PR_ID/comments" \
-    -u "$BITBUCKET_SVC_USERNAME:$BITBUCKET_OAUTH_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d "{\"content\": {\"raw\": \"Codex PR review:\n\n$COMMENT_BODY\"}}"
-fi
+COMMENT_BODY="$(sed 's/"/\\"/g' "$REPORT_FILE" | tr '\n' ' ')"
+curl -X POST \
+  "https://api.bitbucket.org/2.0/repositories/$BITBUCKET_WORKSPACE/$BITBUCKET_REPO_SLUG/pullrequests/$BITBUCKET_PR_ID/comments" \
+  -u "$BITBUCKET_SVC_USERNAME:$BITBUCKET_OAUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"content\": {\"raw\": \"Codex PR review:\n\n$COMMENT_BODY\"}}"
