@@ -88,6 +88,21 @@ definitions:
           - ./cicd-scripts/deploySalesforce.sh
         concurrency-group: salesforce-deployment-${BITBUCKET_BRANCH}    
 
+    # ----------------------
+    # CODEx SECURITY REVIEW
+    # ----------------------
+    - step: &codexPrReview
+        name: CodexPrReview
+        script:
+          - echo "Start Codex PR review on ${BITBUCKET_BRANCH}"
+          - chmod 777 ./cicd-scripts/*.sh
+          - ./cicd-scripts/codexPrReview.sh
+          - echo "End Codex PR review on ${BITBUCKET_BRANCH}"
+        artifacts:
+          - codex-pr-review.md
+          - pr.diff
+        concurrency-group: codex-security-${BITBUCKET_BRANCH}
+
 
 # =====================
 # PIPELINES
@@ -104,6 +119,10 @@ pipelines:
               <<: *validateDeltaSalesforce
               name: Validate Delta SF Deployment
               deployment: org-test
+
+          - step:
+              <<: *codexPrReview
+              name: Codex PR Review
 
   branches:
     sprint/*:
