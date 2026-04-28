@@ -8,8 +8,8 @@ Bitbucket pull request pipelines include a Codex review step that reviews the PR
 
 Key files:
 - `AGENTS.md` defines the basic review rules for Codex
-- `cicd-scripts/codexPrReview.sh` builds the PR diff and calls the OpenAI Responses API
-- `cicd-scripts/postCodexReviewComment.sh` posts the review to Bitbucket
+- `cicd-scripts/codex/codexPrReview.sh` builds the PR diff and calls the OpenAI Responses API
+- `cicd-scripts/codex/postCodexReviewComment.sh` posts the review to Bitbucket
 - `bitbucket-pipelines.yaml` wires the review into pull request pipelines
 
 Required pipeline variables:
