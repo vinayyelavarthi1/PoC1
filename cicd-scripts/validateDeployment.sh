@@ -5,11 +5,9 @@ echo "Validating deployment on org: $TARGETORG"
 
 PACKAGE_XML="package/package.xml"
 
-# ----------------------------------------
-# Exit gracefully if Salesforce delta is empty
-# ----------------------------------------
-if ! grep -q "<types>" "$PACKAGE_XML"; then
-  echo "✅ No Salesforce metadata detected. Skipping SF validation."
+# Exit if Salesforce delta is empty
+if ! grep -Eq "<types>|&lt;types&gt;" "$PACKAGE_XML"; then
+  echo "No Salesforce metadata detected. Skipping SF validation."
   exit 0
 fi
 
