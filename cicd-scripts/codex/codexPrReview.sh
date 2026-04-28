@@ -20,10 +20,12 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 MODEL="${CODEX_MODEL:-codex-mini-latest}"
 MAX_DIFF_CHARS="${CODEX_MAX_DIFF_CHARS:-180000}"
 API_KEY="${OPENAI_API_KEY:-${CODEX_API_KEY:-}}"
-DIFF_FILE="pr.diff"
-REVIEW_FILE="codex-review.md"
+OUTPUT_DIR="output"
+DIFF_FILE="$OUTPUT_DIR/pr_codex.diff"
+REVIEW_FILE="$OUTPUT_DIR/codex-review.md"
 
 cd "$REPO_ROOT"
+mkdir -p "$OUTPUT_DIR"
 
 if [ -z "${BITBUCKET_PR_ID:-}" ]; then
   echo "BITBUCKET_PR_ID is not set. Codex PR review only runs for pull request pipelines."

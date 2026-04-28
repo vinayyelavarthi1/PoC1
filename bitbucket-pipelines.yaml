@@ -94,8 +94,8 @@ definitions:
           - chmod +x ./cicd-scripts/codex/*.sh
           - ./cicd-scripts/codex/codexPrReview.sh
         artifacts:
-          - pr.diff
-          - codex-review.md
+          - output/pr_codex.diff
+          - output/codex-review.md
         concurrency-group: codex-review-${BITBUCKET_PR_ID}
 
 

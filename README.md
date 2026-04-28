@@ -22,5 +22,5 @@ Optional variables:
 - `CODEX_MAX_DIFF_CHARS`
 
 Generated artifacts:
-- `pr.diff`
-- `codex-review.md`
+- `output/pr_codex.diff`
+- `output/codex-review.md`
