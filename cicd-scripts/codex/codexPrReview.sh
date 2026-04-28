@@ -10,19 +10,22 @@
 # - BITBUCKET_PR_DESTINATION_BRANCH
 #
 # Optional variables:
-# - CODEX_MODEL defaults to codex-mini-latest
+# - CODEX_MODEL defaults to gpt-5.1-codex-mini
 # - CODEX_MAX_DIFF_CHARS defaults to 180000
+# - CODEX_MAX_OUTPUT_TOKENS defaults to 6000
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-MODEL="${CODEX_MODEL:-codex-mini-latest}"
+MODEL="${CODEX_MODEL:-gpt-5.1-codex-mini}"
 MAX_DIFF_CHARS="${CODEX_MAX_DIFF_CHARS:-180000}"
+MAX_OUTPUT_TOKENS="${CODEX_MAX_OUTPUT_TOKENS:-6000}"
 API_KEY="${OPENAI_API_KEY:-${CODEX_API_KEY:-}}"
 OUTPUT_DIR="output"
 DIFF_FILE="$OUTPUT_DIR/pr_codex.diff"
 REVIEW_FILE="$OUTPUT_DIR/codex-review.md"
+OPENAI_RESPONSE_FILE="$OUTPUT_DIR/openai-response.json"
 
 cd "$REPO_ROOT"
 mkdir -p "$OUTPUT_DIR"
@@ -63,14 +66,14 @@ if [ ! -s "$DIFF_FILE" ]; then
   printf "No significant findings.\n" > "$REVIEW_FILE"
 else
   PAYLOAD_FILE="$(mktemp)"
-  RESPONSE_FILE="$(mktemp)"
-  trap 'rm -f "$PAYLOAD_FILE" "$RESPONSE_FILE"' EXIT
+  trap 'rm -f "$PAYLOAD_FILE"' EXIT
 
-  node - "$DIFF_FILE" "$PAYLOAD_FILE" "$MODEL" "$MAX_DIFF_CHARS" <<'NODE'
+  node - "$DIFF_FILE" "$PAYLOAD_FILE" "$MODEL" "$MAX_DIFF_CHARS" "$MAX_OUTPUT_TOKENS" <<'NODE'
 const fs = require('fs');
 
-const [diffPath, payloadPath, model, maxDiffCharsRaw] = process.argv.slice(2);
+const [diffPath, payloadPath, model, maxDiffCharsRaw, maxOutputTokensRaw] = process.argv.slice(2);
 const maxDiffChars = Number(maxDiffCharsRaw || 180000);
+const maxOutputTokens = Number(maxOutputTokensRaw || 6000);
 const reviewRulesPath = 'AGENTS.md';
 
 let diff = fs.readFileSync(diffPath, 'utf8');
@@ -113,14 +116,17 @@ const payload = {
     'Do not invent issues. If there are no significant findings, output exactly: No significant findings.'
   ].join(' '),
   input: prompt,
-  max_output_tokens: 2000
+  reasoning: {
+    effort: 'low'
+  },
+  max_output_tokens: maxOutputTokens
 };
 
 fs.writeFileSync(payloadPath, JSON.stringify(payload));
 NODE
 
   HTTP_STATUS="$(
-    curl -sS -o "$RESPONSE_FILE" -w "%{http_code}" \
+    curl -sS -o "$OPENAI_RESPONSE_FILE" -w "%{http_code}" \
       https://api.openai.com/v1/responses \
       -H "Content-Type: application/json" \
       -H "Authorization: Bearer ${API_KEY}" \
@@ -129,11 +135,11 @@ NODE
 
   if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
     echo "OpenAI request failed with HTTP status $HTTP_STATUS"
-    cat "$RESPONSE_FILE"
+    cat "$OPENAI_RESPONSE_FILE"
     exit 1
   fi
 
-  node - "$RESPONSE_FILE" "$REVIEW_FILE" <<'NODE'
+  node - "$OPENAI_RESPONSE_FILE" "$REVIEW_FILE" <<'NODE'
 const fs = require('fs');
 
 const [responsePath, outputPath] = process.argv.slice(2);
@@ -148,6 +154,9 @@ function extractText(item) {
   if (!item) return '';
   if (typeof item === 'string') return item;
   if (item.type === 'output_text' && typeof item.text === 'string') return item.text;
+  if (item.type === 'text' && typeof item.text === 'string') return item.text;
+  if (typeof item.output_text === 'string') return item.output_text;
+  if (typeof item.text === 'string') return item.text;
   if (Array.isArray(item.content)) return item.content.map(extractText).join('');
   if (Array.isArray(item.output)) return item.output.map(extractText).join('');
   return '';
@@ -157,6 +166,10 @@ const text = response.output_text || extractText(response).trim();
 
 if (!text) {
   console.error('OpenAI response did not include review text.');
+  if (response.status) console.error(`Response status: ${response.status}`);
+  if (response.incomplete_details) console.error(`Incomplete details: ${JSON.stringify(response.incomplete_details)}`);
+  if (response.output) console.error(`Output item types: ${response.output.map(item => item.type).join(', ')}`);
+  console.error(`Raw response saved to ${responsePath}`);
   process.exit(1);
 }
 

@@ -18,9 +18,11 @@ Required pipeline variables:
 - `BITBUCKET_OAUTH_TOKEN`
 
 Optional variables:
-- `CODEX_MODEL`, default is `codex-mini-latest`
+- `CODEX_MODEL`, default is `gpt-5.1-codex-mini`
 - `CODEX_MAX_DIFF_CHARS`
+- `CODEX_MAX_OUTPUT_TOKENS`
 
 Generated artifacts:
 - `output/pr_codex.diff`
 - `output/codex-review.md`
+- `output/openai-response.json`

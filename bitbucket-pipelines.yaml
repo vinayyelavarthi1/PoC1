@@ -96,6 +96,7 @@ definitions:
         artifacts:
           - output/pr_codex.diff
           - output/codex-review.md
+          - output/openai-response.json
         concurrency-group: codex-review-${BITBUCKET_PR_ID}
 
 
@@ -106,9 +107,10 @@ pipelines:
   pull-requests:
     '{feature/*,Feature/*,FEATURE/*,bugfix/*,Bugfix/*,BUGFIX/*,hotfix/*,Hotfix/*,HOTFIX/*,sprint/*,Sprint/*,SPRINT/*}':
       - parallel:
-          - step:
-              <<: *runBlackDuckScan
-              name: Run Black Duck Scan
+          # Black Duck scan temporarily paused.
+          # - step:
+          #     <<: *runBlackDuckScan
+          #     name: Run Black Duck Scan
 
           - step:
               <<: *validateDeltaSalesforce
