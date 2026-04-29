@@ -45,6 +45,14 @@ if [ -z "$API_KEY" ]; then
   exit 1
 fi
 
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  echo "Codex API key source: OPENAI_API_KEY"
+elif [ -n "${CODEX_API_KEY:-}" ]; then
+  echo "Codex API key source: CODEX_API_KEY"
+fi
+
+echo "Codex model: $MODEL"
+
 if ! command -v node >/dev/null 2>&1; then
   echo "node is required to build and parse OpenAI JSON payloads."
   exit 1
@@ -63,7 +71,7 @@ git diff --no-ext-diff --unified=80 "$BASE_COMMIT"...HEAD > "$DIFF_FILE"
 
 if [ ! -s "$DIFF_FILE" ]; then
   echo "No pull request diff detected."
-  printf "No significant findings.\n" > "$REVIEW_FILE"
+  printf '{"summary":"No pull request diff detected.","risk":"low","verdict":"approve","findings":[]}\n' > "$REVIEW_FILE"
 else
   PAYLOAD_FILE="$(mktemp)"
   trap 'rm -f "$PAYLOAD_FILE"' EXIT
@@ -74,7 +82,7 @@ const fs = require('fs');
 const [diffPath, payloadPath, model, maxDiffCharsRaw, maxOutputTokensRaw] = process.argv.slice(2);
 const maxDiffChars = Number(maxDiffCharsRaw || 180000);
 const maxOutputTokens = Number(maxOutputTokensRaw || 6000);
-const reviewRulesPath = 'AGENTS.md';
+const rulesDir = 'cicd-scripts/codex/rules';
 
 let diff = fs.readFileSync(diffPath, 'utf8');
 let truncationNote = '';
@@ -84,20 +92,32 @@ if (diff.length > maxDiffChars) {
   truncationNote = `\n\n[Note: diff was truncated to ${maxDiffChars} characters for review. Mention this limitation if it affects confidence.]`;
 }
 
-const reviewRules = fs.existsSync(reviewRulesPath)
-  ? fs.readFileSync(reviewRulesPath, 'utf8')
-  : [
-      'Review only the pull request diff.',
-      'Focus on meaningful issues in the changed code.',
-      'If there is no real issue, respond with `No significant findings.`',
-      'Return markdown.'
-    ].join('\n');
+const ruleFiles = fs.existsSync(rulesDir)
+  ? fs.readdirSync(rulesDir)
+      .filter(fileName => fileName.toLowerCase().endsWith('.md'))
+      .sort()
+  : [];
+
+const reviewRules = ruleFiles
+  .map(fileName => [
+    `Rule file: ${rulesDir}/${fileName}`,
+    fs.readFileSync(`${rulesDir}/${fileName}`, 'utf8').trim()
+  ].join('\n'))
+  .filter(Boolean)
+  .join('\n\n');
+
+const fallbackRules = [
+  'Review only the provided Git diff.',
+  'Focus only on Salesforce metadata best practices.',
+  'Do not invent findings.',
+  'Return only JSON with summary, risk, verdict, and findings.'
+].join('\n');
 
 const prompt = [
   'You are reviewing a Bitbucket pull request.',
   '',
-  'Repository review instructions:',
-  reviewRules,
+  'Markdown review rules:',
+  reviewRules || fallbackRules,
   '',
   'Pull request diff:',
   '```diff',
@@ -111,9 +131,8 @@ const payload = {
   instructions: [
     'You are Codex performing a concise pull request review.',
     'Only review the provided diff.',
-    'Lead with findings ordered by severity.',
-    'Each finding should include the file and line or hunk context when possible.',
-    'Do not invent issues. If there are no significant findings, output exactly: No significant findings.'
+    'Follow the output format requested by the repository and Markdown review rules.',
+    'Do not invent issues.'
   ].join(' '),
   input: prompt,
   reasoning: {

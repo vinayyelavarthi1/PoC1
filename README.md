@@ -7,7 +7,7 @@ This repo is for testing CICD implementation.
 Bitbucket pull request pipelines include a Codex review step that reviews the PR diff and posts feedback directly to the pull request.
 
 Key files:
-- `AGENTS.md` defines the basic review rules for Codex
+- `cicd-scripts/codex/rules/*.md` contains the review rules included in the Codex prompt
 - `cicd-scripts/codex/codexPrReview.sh` builds the PR diff and calls the OpenAI Responses API
 - `cicd-scripts/codex/postCodexReviewComment.sh` posts the review to Bitbucket
 - `bitbucket-pipelines.yaml` wires the review into pull request pipelines

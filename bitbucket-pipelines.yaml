@@ -34,9 +34,14 @@ definitions:
         name: ValidateDeltaSF
         script:
           - echo "Start validation on ${TARGETORG}"
-          - chmod 777 ./cicd-scripts/*.sh
-          - ./cicd-scripts/authorizeOrg.sh
           - |
+            echo "----- Execute CI scripts -----"
+            chmod 777 ./cicd-scripts/*.sh
+          - |
+            echo "----- Authorize Salesforce Org -----"
+            ./cicd-scripts/authorizeOrg.sh
+          - |
+            echo "----- Generate initial Salesforce delta -----"
             export SFGITREPONAME=$(basename `git rev-parse --show-toplevel`)
             export SFGITBRANCHNAME=$(git rev-parse --abbrev-ref HEAD)
             export SFGITCOMMIT=$(git log --date=iso-local --pretty=format:"%h %ad %s | %an" | head -1)
@@ -52,6 +57,7 @@ definitions:
             echo "Comparing against branch: $FROM_BRANCH"
             sf sgd:source:delta --to HEAD --from origin/$FROM_BRANCH -i .deltaignore -o .      
           - |
+             echo "----- Generate DELTA package from PR -----"
              git fetch origin +refs/heads/$FROM_BRANCH:refs/remotes/origin/$FROM_BRANCH
              BASE_COMMIT=$(git merge-base HEAD origin/$FROM_BRANCH)
              TO_COMMIT=HEAD
@@ -63,14 +69,23 @@ definitions:
              else
                echo "package.xml not found";
              fi
-          - if [ -f sgd-output/destructiveChanges/destructiveChanges.xml ]; then
+          - |
+            echo "----- Copy destructive changes file if present -----"
+            if [ -f sgd-output/destructiveChanges/destructiveChanges.xml ]; then
               cp sgd-output/destructiveChanges/destructiveChanges.xml ./destructiveChanges.xml;
             else
               echo "destructiveChanges.xml not found";
             fi
-          - cat ./package.xml
-          - cat ./destructiveChanges.xml
-          - ./cicd-scripts/validateDeployment.sh
+          - |
+            echo "----- Metadata to deploy from package.xml -----"
+            cat ./package.xml
+          - |
+            echo "----- Metadata to delete from destructiveChanges.xml -----"
+            cat ./destructiveChanges.xml
+          - |
+            echo "----- Validate Salesforce deployment package -----"
+            ./cicd-scripts/validateDeployment.sh
+          - echo "----- Exit -----"
 
         artifacts:
           - package.xml
