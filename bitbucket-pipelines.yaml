@@ -1,4 +1,4 @@
-image: 
+image:
   name: acrbd1.azurecr.io/sf:latest
   username: $ACR_USER
   password: $ACR_PASS
@@ -9,9 +9,6 @@ clone:
 definitions:
   steps:
 
-    # ------------------
-    # 🔹 BLACK DUCK SCAN
-    # ------------------
     - step: &runBlackDuckScan
         name: RunBlackDuckScan
         script:
@@ -27,33 +24,16 @@ definitions:
           - '.bridge/**'
         concurrency-group: blackduck-${BITBUCKET_BRANCH}
 
-    # --------------------------------------
-    # 🔹 SALESFORCE VALIDATION – DELTA BASED
-    # --------------------------------------
-    - step: &validateDeltaSalesforce
-        name: ValidateDeltaSF
+    - step: &sf-validate
+        name: Validation Salesforce
         script:
-          - echo "Start validation on ${TARGETORG}"
           - chmod 777 ./cicd-scripts/*.sh
           - ./cicd-scripts/authorizeOrg.sh
+          - sf sgd:source:delta --to HEAD --from origin/$BITBUCKET_PR_DESTINATION_BRANCH -i .deltaignore -o .
+          - ./cicd-scripts/validateDeployment.sh
           - |
-            export SFGITREPONAME=$(basename `git rev-parse --show-toplevel`)
-            export SFGITBRANCHNAME=$(git rev-parse --abbrev-ref HEAD)
-            export SFGITCOMMIT=$(git log --date=iso-local --pretty=format:"%h %ad %s | %an" | head -1)
-
-            if [[ "$BITBUCKET_PR_DESTINATION_BRANCH" == sprint/* ]]; then
-              echo "Target branch is sprint/*"
-              FROM_BRANCH="$compareToBranch"
-            else
-              echo "Target branch is not sprint/*"
-              FROM_BRANCH="$BITBUCKET_PR_DESTINATION_BRANCH"
-            fi
-
-            echo "Comparing against branch: $FROM_BRANCH"
-            sf sgd:source:delta --to HEAD --from origin/$FROM_BRANCH -i .deltaignore -o .      
-          - |
-             git fetch origin +refs/heads/$FROM_BRANCH:refs/remotes/origin/$FROM_BRANCH
-             BASE_COMMIT=$(git merge-base HEAD origin/$FROM_BRANCH)
+             git fetch origin +refs/heads/$BITBUCKET_PR_DESTINATION_BRANCH:refs/remotes/origin/$BITBUCKET_PR_DESTINATION_BRANCH
+             BASE_COMMIT=$(git merge-base HEAD origin/$BITBUCKET_PR_DESTINATION_BRANCH)
              TO_COMMIT=HEAD
              mkdir -p sgd-output
              sf sgd:source:delta --from $BASE_COMMIT --to $TO_COMMIT -o sgd-output --generate-delta
@@ -68,49 +48,55 @@ definitions:
             else
               echo "destructiveChanges.xml not found";
             fi
-          - cat ./package.xml
+          - cat ./package.xml 
           - cat ./destructiveChanges.xml
-          - ./cicd-scripts/validateDeployment.sh
-
+          
         artifacts:
           - package.xml
           - destructiveChanges.xml
 
-        concurrency-group: delta-validation-${BITBUCKET_BRANCH}
-
+        concurrency-group: salesforce-validation-${BITBUCKET_BRANCH}
 
     - step: &sf-deploy
-        name: Deploy Salesforce (Delta)
+        name: Deploy Salesforce 
         script:
           - chmod 777 ./cicd-scripts/*.sh
           - ./cicd-scripts/authorizeOrg.sh
           - sf sgd:source:delta --to HEAD --from HEAD^ -i .deltaignore -o .
           - ./cicd-scripts/deploySalesforce.sh
-        concurrency-group: salesforce-deployment-${BITBUCKET_BRANCH}    
+        concurrency-group: salesforce-deployment-${BITBUCKET_BRANCH}
 
+    - step: &vlocity-deploy
+        name: Deploy Vlocity (Delta)
+        script:
+          - chmod 777 ./cicd-scripts/*.sh
+          - ./cicd-scripts/authorizeOrg.sh
+          - ./cicd-scripts/deployVlocityDelta.sh
+        concurrency-group: vlocity-deployment-${BITBUCKET_BRANCH}
 
-# =====================
-# PIPELINES
-# =====================
 pipelines:
   pull-requests:
-    '{feature/*,Feature/*,FEATURE/*,bugfix/*,Bugfix/*,BUGFIX/*,hotfix/*,Hotfix/*,HOTFIX/*,sprint/*,Sprint/*,SPRINT/*}':
+    '{feature/*,Feature/*,FEATURE/*,bugfix/*,Bugfix/*,BUGFIX/*,hotfix/*,Hotfix/*,HOTFIX/*}':
       - parallel:
           - step:
               <<: *runBlackDuckScan
               name: Run Black Duck Scan
-
           - step:
-              <<: *validateDeltaSalesforce
-              name: Validate Delta SF Deployment
-              deployment: org-test
+              <<: *sf-validate
+              name: Salesforce Validation
+              deployment: SitSF
 
   branches:
-    sprint/*:
+   org/sit:
       - step:
           <<: *sf-deploy
           name: Salesforce Deployment
-          deployment: bw-dev
+          deployment: SitSF
+
+      - step:
+          <<: *vlocity-deploy
+          name: Vlocity Deployment
+          deployment: SitVlo
 
   custom:
     Manual Black Duck Scan:
