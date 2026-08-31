@@ -9,13 +9,14 @@ else
   PACKAGE_XML="package/package.xml"
 fi
 
-# Exit if Salesforce delta is empty 
+# Exit if Salesforce delta is empty
 if ! grep -Eq "<types>|&lt;types&gt;" "$PACKAGE_XML"; then
-  echo "✅ No Salesforce metadata detected. Skipping SF validation."
+  echo "No Salesforce metadata detected. Skipping SF validation."
   exit 0
 fi
 
-sf project deploy validate --wait 60 --manifest package/package.xml --test-level RunRelevantTests --verbose --ignore-warnings --target-org "$TARGETORG" --pre-destructive-changes manifest/destructive-changes/pre.xml --post-destructive-changes manifest/destructive-changes/post.xml
+# Run Salesforce Validation
+sf project deploy validate --manifest ./package.xml --test-level RunRelevantTests --verbose --ignore-warnings --target-org "$TARGETORG" --pre-destructive-changes manifest/destructive-changes/pre.xml --post-destructive-changes manifest/destructive-changes/post.xml
 
 echo "$validateOutput"
 #add output to PR
