@@ -8,7 +8,73 @@ clone:
 
 definitions:
   steps:
+    # ----------------------
+    # 🔹 Codex Code Review
+    # ----------------------
+    - step: &runCodexDiffReview
+        name: RunCodexDiffReview
+        script:
+          - |
+              if [ "$codeReviewFlag" != "true" ]; then
+                exit 0
+              fi
 
+              set -eu
+              echo "Start of runCodexDiffReview on ${BITBUCKET_BRANCH}"
+              export OPENAI_API_KEY="${CODEX_API_KEY}"
+              if [ -z "${compareToBranch:-}" ]; then
+                export compareBranch="org/test"
+              else
+                export compareBranch=${compareToBranch}
+              fi
+              git fetch origin "+refs/heads/${compareBranch}:refs/remotes/origin/${compareBranch}"
+
+              codex \
+               -a never \
+               --sandbox read-only \
+               -C /opt/atlassian/pipelines/agent/build \
+               exec \
+               --ephemeral \
+               --model "${codexModel}" \
+               -o codex-review.md \
+               "${codexPrompt}"
+
+              if [ -z "${BITBUCKET_PR_ID:-}" ]; then
+                echo "BITBUCKET_PR_ID is missing, the pr comment logic is skipped."
+                touch codex-review.md
+                cat codex-review.md
+              else
+                if [ -f codex-review.md ] && [ ! -s codex-review.md ]; then
+                  echo "Codex Review file, codex-review.md, is empty.  The pr comment logic is skipped."
+                elif [ -f codex-review.md ] && [ -s codex-review.md ]; then
+                  jq -n --rawfile raw codex-review.md '{content: {raw: $raw}}' > bitbucket-comment.json
+
+                  COMMENTS_URL="https://api.bitbucket.org/2.0/repositories/${BITBUCKET_WORKSPACE}/${BITBUCKET_REPO_SLUG}/pullrequests/${BITBUCKET_PR_ID}/comments"
+
+                  HTTP_STATUS="$(
+                    curl -sS \
+                      -o bitbucket-comment-response.json \
+                      -w "%{http_code}" \
+                      -u "${BITBUCKET_SVC_USERNAME}:${BITBUCKET_OAUTH_TOKEN}" \
+                      -H "Content-Type: application/json" \
+                      --data @bitbucket-comment.json \
+                      "${COMMENTS_URL}"
+                  )"
+
+                  if [ "${HTTP_STATUS}" -lt 200 ] || [ "${HTTP_STATUS}" -ge 300 ]; then
+                    echo "Failed to post Bitbucket PR comment. HTTP ${HTTP_STATUS}."
+                    cat bitbucket-comment-response.json
+                    exit 1
+                  fi
+                  echo "Posted Codex review to PR ${BITBUCKET_PR_ID}. HTTP ${HTTP_STATUS}."
+                else
+                  echo "Codex review output file was not found."
+                fi
+              fi
+              echo "End of runCodexDiffReview on ${BITBUCKET_BRANCH}"
+        after-script:
+          - echo "Bitbucket pipeline finished"
+        concurrency-group: codex-${BITBUCKET_BRANCH}
     # ------------------
     # 🔹 BLACK DUCK SCAN
     # ------------------
@@ -26,7 +92,6 @@ definitions:
         artifacts:
           - '.bridge/**'
         concurrency-group: blackduck-${BITBUCKET_BRANCH}
-
     # --------------------------------------
     # 🔹 SALESFORCE VALIDATION – DELTA BASED
     # --------------------------------------
@@ -77,8 +142,6 @@ definitions:
           - destructiveChanges.xml
 
         concurrency-group: delta-validation-${BITBUCKET_BRANCH}
-
-
     - step: &sf-deploy
         name: Deploy Salesforce (Delta)
         script:
@@ -97,23 +160,29 @@ pipelines:
     '{feature/*,Feature/*,FEATURE/*,bugfix/*,Bugfix/*,BUGFIX/*,hotfix/*,Hotfix/*,HOTFIX/*,sprint/*,Sprint/*,SPRINT/*}':
       - parallel:
           - step:
+              <<: *runCodexDiffReview
+              name: Codex PR Review
+              deployment: org-test-codex
+          - step:
               <<: *runBlackDuckScan
               name: Run Black Duck Scan
-
           - step:
               <<: *validateDeltaSalesforce
               name: Validate Delta SF Deployment
               deployment: org-test
-
   branches:
     sprint/*:
       - step:
           <<: *sf-deploy
           name: Salesforce Deployment
           deployment: bw-dev
-
   custom:
     Manual Black Duck Scan:
       - step:
           <<: *runBlackDuckScan
           name: Manual Black Duck Scan
+    Codex PR Review:
+      - step:
+          <<: *runCodexDiffReview
+          name: Codex PR Review
+          deployment: org-test-codex
