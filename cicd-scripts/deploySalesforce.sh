@@ -3,7 +3,11 @@ set -e
 
 echo "STARTING DEPLOYMENT on org: $TARGETORG"
 
-PACKAGE_XML="package/package.xml"
+if [ -f ./package.xml ]; then
+  PACKAGE_XML="./package.xml"
+else
+  PACKAGE_XML="package/package.xml"
+fi
 
 # Exit if Salesforce delta is empty 
 if ! grep -Eq "<types>|&lt;types&gt;" "$PACKAGE_XML"; then
