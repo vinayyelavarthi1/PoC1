@@ -150,6 +150,12 @@ definitions:
           - sf sgd:source:delta --to HEAD --from HEAD^ -i .deltaignore -o .
           - ./cicd-scripts/deploySalesforce.sh
         concurrency-group: salesforce-deployment-${BITBUCKET_BRANCH}    
+    - step: &Salesforce-Deploy
+        name: Salesforce STAGE Deployment
+        script:
+          - chmod 777 ./cicd-scripts/*.sh
+          - ./cicd-scripts/scheduledStageDeploy.sh
+        concurrency-group: salesforce-stage-deployment
 
 
 # =====================
@@ -170,6 +176,19 @@ pipelines:
               <<: *validateDeltaSalesforce
               name: Validate Delta SF Deployment
               deployment: org-test
+    '{stage/*,Stage/*,STAGE/*}':
+      - parallel:
+          - step:
+              <<: *runCodexDiffReview
+              name: Codex PR Review
+              deployment: org-test-codex
+          - step:
+              <<: *runBlackDuckScan
+              name: Run Black Duck Scan
+          - step:
+              <<: *validateDeltaSalesforce
+              name: Validate STAGE Delta SF Deployment
+              deployment: org-stage
   branches:
     sprint/*:
       - step:
@@ -186,3 +205,8 @@ pipelines:
           <<: *runCodexDiffReview
           name: Codex PR Review
           deployment: org-test-codex
+    Salesforce STAGE Deployment:
+      - step:
+          <<: *Salesforce-Deploy
+          name: Salesforce STAGE Deployment
+          deployment: org-stage

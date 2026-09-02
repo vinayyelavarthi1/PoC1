@@ -9,6 +9,11 @@ else
   PACKAGE_XML="package/package.xml"
 fi
 
+if [ ! -f "$PACKAGE_XML" ]; then
+  echo "Package manifest not found: $PACKAGE_XML"
+  exit 1
+fi
+
 # Exit if Salesforce delta is empty 
 if ! grep -Eq "<types>|&lt;types&gt;" "$PACKAGE_XML"; then
   echo "No Salesforce metadata detected. Skipping SF Deployment."
@@ -16,6 +21,15 @@ if ! grep -Eq "<types>|&lt;types&gt;" "$PACKAGE_XML"; then
 fi
 
 # Run Salesforce Deployment
-sf project deploy start --manifest package/package.xml --test-level RunRelevantTests --verbose --ignore-warnings --target-org "$TARGETORG" --pre-destructive-changes manifest/destructive-changes/pre.xml --post-destructive-changes manifest/destructive-changes/post.xml --ignore-conflicts
+sf project deploy start \
+  --manifest "$PACKAGE_XML" \
+  --test-level RunLocalTests \
+  --pre-destructive-changes manifest/destructive-changes/pre.xml \
+  --post-destructive-changes manifest/destructive-changes/post.xml \
+  --target-org "$TARGETORG" \
+  --ignore-warnings \
+  --wait 60 \
+  --verbose \
+  --ignore-conflicts
 
 echo "Deployment execution completed successfully!"
